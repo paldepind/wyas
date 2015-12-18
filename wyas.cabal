@@ -25,7 +25,9 @@ executable wyas
   -- other-extensions:    
   -- Other library packages from which modules are imported.
   build-depends:       base >=4.8 && <4.9
-                     , parsec >= 3.1.7 && <3.2
+                     , parsec >=3.1.7 && <3.2
+                     , unordered-containers >=0.2.5.0 && <2.6
+                     , mtl >=2.2.1 && <2.3
   -- hs-source-dirs:      
   -- Base language which the package is written in.
   default-language:    Haskell2010
