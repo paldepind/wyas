@@ -160,5 +160,4 @@ extractValue (Right val) = val
 main :: IO ()
 main = do
   expr <- head <$> getArgs
-  result <- return $ eval =<< readExpr expr
-  putStrLn . extractValue $ (show <$> result) `catchError` (return . show)
+  putStrLn $ either show show $ eval =<< readExpr expr
