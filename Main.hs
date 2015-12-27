@@ -14,6 +14,7 @@ data LispVal
   | String String
   | Char Char
   | Bool Bool
+  deriving (Eq)
 
 instance Show LispVal where
   show = showVal
@@ -130,16 +131,80 @@ primitives = H.fromList [("+", numericBinop (+))
                         ,("/", numericBinop div)
                         ,("mod", numericBinop mod)
                         ,("quotient", numericBinop quot)
-                        ,("remainder", numericBinop rem)]
+                        ,("remainder", numericBinop rem)
+                        ,("=", numBoolBinop (==))
+                        ,("<", numBoolBinop (<))
+                        ,(">", numBoolBinop (>))
+                        ,("/=", numBoolBinop (/=))
+                        ,(">=", numBoolBinop (>=))
+                        ,("<=", numBoolBinop (<=))
+                        ,("&&", boolBoolBinop (&&))
+                        ,("||", boolBoolBinop (||))
+                        ,("string=?", strBoolBinop (==))
+                        ,("string<?", strBoolBinop (<))
+                        ,("string>?", strBoolBinop (>))
+                        ,("string<=?", strBoolBinop (<=))
+                        ,("string>=?", strBoolBinop (>=))
+                        ,("car", car)
+                        ,("cdr", cdr)
+                        ,("cons", cons)
+                        ,("eq?", eqv)
+                        ,("eqv?", eqv)
+                        ]
 
 numericBinop :: (Integer -> Integer -> Integer) -> [LispVal] -> ThrowsError LispVal
 numericBinop op params
   | length params < 2 = throwError (NumArgs 2 params)
   | otherwise         = fmap (Number . foldl1 op) $ traverse unpackNum params
 
+boolBinop :: (LispVal -> ThrowsError a) -> (a -> a -> Bool) -> [LispVal] -> ThrowsError LispVal
+boolBinop unpacker op args = if length args /= 2
+                                then throwError $ NumArgs 2 args
+                                else do left <- unpacker $ args !! 0
+                                        right <- unpacker $ args !! 1
+                                        return $ Bool $ left `op` right
+                                        
+numBoolBinop = boolBinop unpackNum
+strBoolBinop = boolBinop unpackStr
+boolBoolBinop = boolBinop unpackBool
+
+unpackStr :: LispVal -> ThrowsError String
+unpackStr (String s) = return s
+unpackStr notString = throwError $ TypeMismatch "string" notString
+
+unpackBool :: LispVal -> ThrowsError Bool
+unpackBool (Bool b) = return b
+unpackBool notBool = throwError $ TypeMismatch "boolean" notBool
+
 unpackNum :: LispVal -> ThrowsError Integer
 unpackNum (Number n) = return n
 unpackNum notNum = throwError $ TypeMismatch "number" notNum
+
+car :: [LispVal] -> ThrowsError LispVal
+car [List (x:_)] = return x
+car [DottedList (x:_) _] = return x
+car [badArg] = throwError $ TypeMismatch "pair" badArg
+car badArgList = throwError $ NumArgs 1 badArgList
+
+cdr :: [LispVal] -> ThrowsError LispVal
+cdr [List (_:xs)] = return $ List xs
+cdr [DottedList [_] x] = return x
+cdr [DottedList (_:xs) x] = return $ DottedList xs x
+cdr [badArg] = throwError $ TypeMismatch "pair" badArg
+cdr badArgList = throwError $ NumArgs 1 badArgList
+
+cons :: [LispVal] -> ThrowsError LispVal
+cons [x, List []] = return $ List [x]
+cons [x, List xs] = return $ List $ x : xs
+cons [x, DottedList xs l] = return $ DottedList (x:xs) l
+cons [a, b] = return $ DottedList [a] b
+
+eqToBool :: Eq a => a -> a -> ThrowsError LispVal
+eqToBool a b = return . Bool $ a == b
+
+eqv :: [LispVal] -> ThrowsError LispVal
+eqv [a, b] = return $ Bool $ a == b
+eqv badArgList = throwError $ NumArgs 2 badArgList
 
 apply :: String -> [LispVal] -> ThrowsError LispVal
 apply func args = maybe (throwError $ NotFunction "not found" func)
@@ -147,10 +212,15 @@ apply func args = maybe (throwError $ NotFunction "not found" func)
                         (H.lookup func primitives)
 
 eval :: LispVal -> ThrowsError LispVal
-eval val@ (String _) = return val
-eval val@ (Number _) = return val
-eval val@ (Bool _) = return val
+eval val@(String _) = return val
+eval val@(Number _) = return val
+eval val@(Bool _) = return val
 eval (List [Atom "quote", val]) = return val
+eval (List [Atom "if", pred, conseq, alt]) =
+  do result <- eval pred
+     case result of
+       Bool False -> eval alt
+       otherwise -> eval conseq
 eval (List (Atom func : args)) = mapM eval args >>= apply func
 eval badForm = throwError $ BadSpecialForm "Unrecognized special form" badForm
 
